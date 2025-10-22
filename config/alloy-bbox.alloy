@@ -1,0 +1,47 @@
+prometheus.exporter.blackbox "embedded" {
+	config_file = "/etc/alloy/blackbox.yml"
+
+	target {
+		name    = "example"
+		address = "https://example.com"
+		module  = "http_2xx"
+	}
+
+	target {
+		name    = "grafana"
+		address = "https://grafana.com"
+		module  = "http_2xx"
+		labels  = {
+			"env" = "dev",
+		}
+	}
+}
+
+discovery.relabel "embedded" {
+	targets = prometheus.exporter.blackbox.embedded.targets
+
+	rule {
+		source_labels = ["__param_target"]
+		target_label  = "instance"
+	}
+}
+
+prometheus.scrape "embedded" {
+	// create a target and add additional params to it http://localhost:9115/probe?target=prometheus.io&module=http_2xx
+	// the default metric path is "/metrics" so override it with "/probe"
+	targets = discovery.relabel.embedded.output
+
+	scrape_interval = "10s"
+	params          = {"module" = ["http_2xx"]}
+	metrics_path    = "/probe"
+
+	// send to relabel first as i want the instance to be the target domain
+	forward_to = [prometheus.remote_write.to_mimir.receiver]
+}
+
+// Send scraped metrics to the built-in Mimir instance inside the LGTM stack
+prometheus.remote_write "to_mimir" {
+	endpoint {
+		url = "http://mimir:9009/api/v1/push"
+	}
+}

@@ -1,0 +1,83 @@
+networks:
+  monitoring:
+    driver: bridge
+
+services:
+  grafana:
+    platform: linux/arm64
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # Grafana UI
+    environment:
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_BASIC_ENABLED=false
+      - GF_ANALYTICS_ENABLED=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_LOG_LEVEL=error
+    volumes:
+      - ./config/grafana:/etc/grafana/provisioning/
+    networks:
+      - monitoring
+
+  blackbox:
+    platform: linux/arm64
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox
+    restart: unless-stopped
+    ports:
+      - "9115:9115"
+    networks:
+      - monitoring
+    volumes:
+      - ./config/blackbox.yml:/etc/blackbox_exporter/config.yml
+    command: 
+      - "--config.file=/etc/blackbox_exporter/config.yml"
+      # - "--log.level=debug"
+
+  alloy:
+    platform: linux/arm64
+    image: grafana/alloy:latest
+    container_name: alloy
+    ports:
+      - 12345:12345
+      - 4317:4317
+      - 4318:4318
+    volumes:
+      - ./config/alloy-prom.alloy:/etc/alloy/config.alloy
+    command: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy --disable-reporting
+    networks:
+      - monitoring
+    depends_on: 
+      - mimir
+
+  mimir:
+    image: grafana/mimir:latest
+    container_name: mimir
+    command: --config.file=/etc/mimir/mimir.yml
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./config/mimir.yml:/etc/mimir/mimir.yml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  alloy-bbox:
+    platform: linux/arm64
+    image: grafana/alloy:latest
+    container_name: alloybbox
+    ports:
+      - 54321:12345
+      # - 4317:4317
+      # - 4318:4318
+    volumes:
+      - ./config/alloy-bbox.alloy:/etc/alloy/config.alloy
+      - ./config/blackbox.yml:/etc/alloy/blackbox.yml
+    command: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy --disable-reporting
+    networks:
+      - monitoring
+    depends_on: 
+      - mimir

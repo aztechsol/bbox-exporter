@@ -1,0 +1,41 @@
+discovery.relabel "exporter" {
+	// with a list of targets
+	targets = [
+		{"__address__" = "blackbox:9115", "__param_target" = "https://prometheus.io"},
+		{"__address__" = "blackbox:9115", "__param_target" = "https://www.google.co.uk"},
+		{"__address__" = "blackbox:9115", "__param_target" = "http://www.google.com"},
+	]
+
+	rule {
+		// add an additional label instance that matches the __param_target  ( __param_* are temporary internal vars)
+		source_labels = ["__param_target"]
+		target_label  = "instance"
+	}
+}
+
+prometheus.scrape "exporter" {
+	// using the targets add additional params to it to make ..  http://localhost:9115/probe?target=${__param_target}&module=http_2xx
+	// the default metric path is "/metrics" so override it with "/probe"
+	targets = discovery.relabel.exporter.output
+
+	// optionaly could write...but this is error prone 
+	//   targets = [
+	// 	{"__address__" = "blackbox:9115", "instance" = "https://prometheus.io", "__param_target" = "https://prometheus.io"},
+	// 	{"__address__" = "blackbox:9115", "instance" = "https://www.google.co.uk", "__param_target" = "https://www.google.co.uk"},
+	// 	{"__address__" = "blackbox:9115", "instance" = "hhttp://www.google.com", "__param_target" = "http://www.google.com"},
+	// ]
+
+	scrape_interval = "10s"
+	params          = {"module" = ["http_2xx"]}
+	metrics_path    = "/probe"
+
+	// send to relabel first as i want the instance to be the target domain
+	forward_to = [prometheus.remote_write.to_mimir.receiver]
+}
+
+// Send scraped metrics to the built-in Mimir instance inside the LGTM stack
+prometheus.remote_write "to_mimir" {
+	endpoint {
+		url = "http://mimir:9009/api/v1/push"
+	}
+}
